@@ -20,11 +20,11 @@ os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 
 llm = ChatOpenAI(model="gpt-4o-mini")
 
-llm1 = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=1,
-    max_retries=2,
-)
+# llm1 = ChatGroq(
+#     model="llama-3.1-8b-instant",
+#     temperature=1,
+#     max_retries=2,
+# )
 
 
 class GoogleSearchTool(BaseTool):
@@ -104,7 +104,7 @@ openai_prompt = ChatPromptTemplate.from_messages(
 
 website_agent = create_tool_calling_agent(llm, tools, openai_prompt)
 website_agent_executor = AgentExecutor(agent=website_agent, tools=tools, verbose=True)
-url_result = website_agent_executor.invoke({"input": "SRM Institute of Science and Technology, Kattankulathur"})
+url_result = website_agent_executor.invoke({"input": "Nike, Inc"})
 url = url_result['output']
 print(url)
 
