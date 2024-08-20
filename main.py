@@ -1,20 +1,42 @@
+# from langchain_groq import ChatGroq # llm1 = ChatGroq(model="llama-3.1-8b-instant", temperature=1, max_retries=2)
+
 from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
-from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-from web_page_tool import WebPageTool
-from google_search_tool import GoogleSearchTool
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
+
+from agent_tools.web_page_tool import WebPageTool
+from agent_tools.google_search_tool import GoogleSearchTool
+from agent_tools.metadesc_tool import MetaDescriptionTool
+from agent_tools.company_info_extractor_tool import CompanyInfoExtractorTool
+from agent_tools.whois_tool import WhoisTool
+import naics_rag.query
+
+import streamlit as st
+import whois
+from datetime import datetime
+
 import os
+from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ["SERPAPI_API_KEY"] = os.getenv("SERPAPI_API_KEY")
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-os.environ["GOOGLE_CSE_ID"] = os.getenv("GOOGLE_CSE_ID")
-os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+
+st.set_page_config(layout="wide", page_title='Company Profiling Demo')
+st.sidebar.title("Testing UI for Company Profiling Tool.")
+with st.sidebar.expander("Details"):
+    st.write(f"Testing APIs - OpenAI, Groq, Google Custom Search, Perplexity,"
+             f"etc.")
+
+meta_description_tool = MetaDescriptionTool()
+company_info_extractor_tool = CompanyInfoExtractorTool()
+whois_tool = WhoisTool()
+page_getter = WebPageTool()
+google_search_tool = GoogleSearchTool(
+    api_key=os.environ["GOOGLE_API_KEY"],
+    cse_id=os.environ["GOOGLE_CSE_ID"],
+)
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_retries=2)
 
@@ -24,18 +46,7 @@ conversational_memory = ConversationBufferWindowMemory(
     return_messages=True
 )
 
-# llm1 = ChatGroq(model="llama-3.1-8b-instant", temperature=1, max_retries=2)
-
-page_getter = WebPageTool()
-
-google_search_tool = GoogleSearchTool(
-    api_key=os.environ["GOOGLE_API_KEY"],
-    cse_id=os.environ["GOOGLE_CSE_ID"],
-)
-
-tools = [google_search_tool]
-
-openai_prompt = ChatPromptTemplate.from_messages(
+url_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
@@ -53,40 +64,95 @@ openai_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-website_agent = create_tool_calling_agent(llm, tools, openai_prompt)
-website_agent_executor = AgentExecutor(agent=website_agent, tools=tools, verbose=True)
-url_result = website_agent_executor.invoke({"input": "AB Staffing Solutions"})
-url = url_result['output']
-print(url)
 
-if url != "URL_NOT_FOUND":
-    company_analyzer_prompt = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            "You are a company analyzer. Your purpose is to determine if the "
-            "given company is healthcare-related. "
-            "Use the page_getter tool to find information about the "
-            "company. Then, provide a response in the "
-            "following format: 'Answer: [Yes/No/Maybe], Reason: [Brief "
-            "explanation], Company Description: [150 word Description]'. Do not include any additional "
-            "information or formatting. If you cannot find enough "
-            "information, respond with 'Answer: Maybe, "
-            "Reason: Insufficient information available.'"
-        ),
-        ("placeholder", "{chat_history}"),
-        ("human", f"Analyze this company: {url}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
+def analyze_company(company_name):
+    tools = [google_search_tool]
+    website_agent = create_tool_calling_agent(llm, tools, url_prompt)
+    website_agent_executor = AgentExecutor(agent=website_agent, tools=tools, verbose=True)
+    url_result = website_agent_executor.invoke({"input": company_name})
+    url = url_result['output']
 
-    tools = [page_getter]
+    if url != "URL_NOT_FOUND":
+        meta_description_prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "You are a company analyzer. Your purpose is to provide the meta description of"
+                "the given company based on its website content. Use the meta_description_tool."
+                "Do not include any additional information or formatting. If you cannot find enough "
+                "information for any field, respond with 'Information not available' for that field."
+            ),
+            ("placeholder", "{chat_history}"),
+            ("human", f"Analyze this company: {url}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ])
+        meta_tools = [meta_description_tool]
+        meta_agent = create_tool_calling_agent(llm, meta_tools, meta_description_prompt)
+        meta_agent_executor = AgentExecutor(agent=meta_agent, tools=meta_tools, verbose=True)
+        meta_result = meta_agent_executor.invoke({"input": f"Get meta description for: {url}"})
+        meta_description = meta_result['output']
 
-    company_analyzer_agent = create_tool_calling_agent(llm, tools,
-                                                       company_analyzer_prompt)
-    company_analyzer_executor = AgentExecutor(agent=company_analyzer_agent,
-                                              tools=tools, verbose=True)
+        company_info_prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "You are a company analyzer. Your purpose is to provide company information. "
+                "Use the page_getter tool for this."
+                "If you cannot find enough information, "
+                "respond with 'Information not available' for that field."
+            ),
+            ("placeholder", "{chat_history}"),
+            ("human", f"Analyze this company: {url}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ])
+        info_tools = [page_getter]
+        info_agent = create_tool_calling_agent(llm, info_tools, company_info_prompt)
+        info_agent_executor = AgentExecutor(agent=info_agent, tools=info_tools, verbose=True)
+        info_result = info_agent_executor.invoke({"input": f"Get company information for: {url}"})
+        company_info = info_result['output']
 
-    analysis_result = company_analyzer_executor.invoke(
-        {"input": f"Analyze this company: {url}"})
-    print(analysis_result['output'])
-else:
-    print("Could not find a URL for the company.")
+        results = naics_rag.query.query_rag(company_info)
+
+        return url, meta_description, company_info, results
+    else:
+        return url, "Could not find a URL for the company.", "Could not find a URL for the company.", "Could not find a URL for the company."
+
+
+st.title("Company Profiling")
+
+company_name = st.text_input("Enter company name:")
+
+if st.button("Analyze"):
+    with st.spinner("Analyzing..."):
+        url, meta_description, company_info, results = analyze_company(company_name)
+
+    st.write(f"**Company URL**: {url}")
+
+    st.subheader("Meta Description")
+    st.write(meta_description)
+    st.write(company_info)
+
+    results_content = results.content
+
+    st.subheader("NAICS Data:")
+    st.write(results_content)
+
+    st.subheader("Website Age")
+    try:
+        domain = whois.whois(url)
+        creation_date = domain.creation_date
+
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+
+        if creation_date:
+            current_date = datetime.now()
+            age = current_date - creation_date
+            years = age.days // 365
+            remaining_days = age.days % 365
+            st.write(f"The website {url} is approximately {years} years and {remaining_days} days old.")
+        else:
+            st.write(f"Unable to determine the age of {url}. Creation date not available.")
+    except Exception as e:
+        st.write(f"An error occurred: {str(e)}")
+
+    st.subheader("Whois Data:")
+    st.write(whois.whois(url))

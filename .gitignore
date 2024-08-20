@@ -1,2 +1,6 @@
 venv
 .idea
+/naics_rag/chroma/
+/naics_rag/data/
+/.env
+/chroma/
