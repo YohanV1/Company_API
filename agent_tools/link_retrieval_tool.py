@@ -4,8 +4,8 @@ from typing import List
 import requests
 
 
-class GoogleSearchTool(BaseTool):
-    name = "google_search"
+class LinkRetriever(BaseTool):
+    name = "link_retriever"
     description = "Useful only for retrieving website links and nothing else."
     api_key: str = Field(..., description="Google API key")
     cse_id: str = Field(..., description="Google Custom Search Engine ID")

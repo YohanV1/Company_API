@@ -7,8 +7,8 @@ from langchain.schema.document import Document
 from naics_rag.embeddings import get_embedding_function
 from langchain_chroma import Chroma
 
-CHROMA_PATH = "chroma"
-DATA_PATH = "data"
+CHROMA_PATH = "naics_rag/chroma"
+DATA_PATH = "naics_rag/data"
 
 
 def main():
@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--reset", action="store_true", help="Reset the database.")
     args = parser.parse_args()
     if args.reset:
-        print("✨ Clearing Database")
+        print("Clearing Database")
         clear_database()
 
     documents = load_documents()
@@ -32,8 +32,8 @@ def load_documents():
 
 def split_documents(documents: list[Document]):
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=80,
+        chunk_size=800,  # play with these parameters
+        chunk_overlap=80,  # play with these parameters
         length_function=len,
         is_separator_regex=False,
     )
